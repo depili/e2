@@ -94,12 +94,12 @@ func main() {
 			}
 			fmt.Printf("\nTallies:\n")
 			for i := 0; i < 8; i++ {
-				fmt.Printf("\tTally: %d", i+1)
+				fmt.Printf("\t%d", i+1)
 				if tallies[i] {
 					if err := embd.DigitalWrite(pins[i], embd.High); err != nil {
 						panic(err)
 					}
-					fmt.Printf(" ON\n")
+					fmt.Printf(" ON")
 				} else {
 					if err := embd.DigitalWrite(pins[i], embd.Low); err != nil {
 						panic(err)
