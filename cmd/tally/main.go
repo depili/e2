@@ -68,7 +68,7 @@ func main() {
 				match := r.FindStringSubmatch(contact)
 				if len(match) == 2 {
 					tally, err = strconv.Atoi(match[1])
-					if err != nil {
+					if err != nil || tally > 8 || tally < 1 {
 						tally = -1
 					} else {
 						fmt.Printf("\tTally: %d\n", tally)
