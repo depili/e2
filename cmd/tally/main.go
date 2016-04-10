@@ -70,6 +70,7 @@ func main() {
 					tally, err = strconv.Atoi(match[1])
 					if err != nil || tally > 8 || tally < 1 {
 						tally = -1
+						fmt.Printf("\tIllegal tally number\n")
 					} else {
 						fmt.Printf("\tTally: %d\n", tally)
 					}
