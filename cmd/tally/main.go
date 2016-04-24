@@ -1,7 +1,7 @@
 package main
 
 import (
-	"e2/tally"
+	"github.com/depili/e2/tally"
 	"github.com/jessevdk/go-flags"
 	"github.com/qmsk/e2/client"
 	"github.com/qmsk/e2/discovery"
