@@ -116,17 +116,17 @@ func (tally *Tally) update() error {
 	}
 
 	for i, enable := range relay_states {
-		fmt.Printf("relay %d: ", i+1)
+		fmt.Printf("\t%d: ", i+1)
 		if enable {
 			//			if err := relays[i].Write(embd.High); err != nil {
 			//				panic(err)
 			//			}
-			fmt.Printf("ON, ")
+			fmt.Printf("\033[7m\033[1mON\033[21m\033[27m ")
 		} else {
 			//			if err := relays[i].Write(embd.Low); err != nil {
 			//				panic(err)
 			//			}
-			fmt.Printf("off, ")
+			fmt.Printf("off ")
 		}
 	}
 	fmt.Printf("\n")
