@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"github.com/qmsk/e2/client"
 	"github.com/qmsk/e2/discovery"
-	//	"github.com/wujiang/embd"
-	//	_ "github.com/wujiang/embd/host/rpi" // This loads the RPi drive
+	"github.com/wujiang/embd"
+	_ "github.com/wujiang/embd/host/rpi" // This loads the RPi drive
 	"log"
 )
+
+var pins = [8]int{21, 20, 16, 12, 26, 19, 13, 6}
 
 type Options struct {
 	clientOptions    client.Options
@@ -36,12 +38,43 @@ type Tally struct {
 
 	// updates to sources
 	sourceChan chan Source
+
+	// Relays
+	relays [8]embd.DigitalPin
 }
 
 func (tally *Tally) start(options Options) error {
 	tally.options = options
 	tally.sources = make(map[string]Source)
 	tally.sourceChan = make(chan Source)
+
+	// Initialize GPIO
+	log.Printf("Initializing GPIO\n")
+
+	if err := embd.InitGPIO(); err != nil {
+		panic(err)
+	}
+	defer embd.CloseGPIO()
+
+	for i, pin := range pins {
+		fmt.Printf("Relay %d pin %d: ", i+1, pin)
+		relay, err := embd.NewDigitalPin(pins[i])
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf(" open")
+		defer relay.Close()
+
+		if err := relay.SetDirection(embd.Out); err != nil {
+			panic(err)
+		}
+		fmt.Printf(" output")
+		if err := relay.Write(embd.Low); err != nil {
+			panic(err)
+		}
+		fmt.Printf(" low\n")
+		tally.relays[i] = relay
+	}
 
 	if discovery, err := options.discoveryOptions.Discovery(); err != nil {
 		return fmt.Errorf("discovery:DiscoveryOptions.Discovery: %v", err)
@@ -118,14 +151,14 @@ func (tally *Tally) update() error {
 	for i, enable := range relay_states {
 		fmt.Printf("\t%d: ", i+1)
 		if enable {
-			//			if err := relays[i].Write(embd.High); err != nil {
-			//				panic(err)
-			//			}
+			if err := tally.relays[i].Write(embd.High); err != nil {
+				panic(err)
+			}
 			fmt.Printf("\033[7m\033[1mON\033[21m\033[27m ")
 		} else {
-			//			if err := relays[i].Write(embd.Low); err != nil {
-			//				panic(err)
-			//			}
+			if err := tally.relays[i].Write(embd.Low); err != nil {
+				panic(err)
+			}
 			fmt.Printf("off ")
 		}
 	}
