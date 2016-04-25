@@ -54,7 +54,6 @@ func (tally *Tally) start(options Options) error {
 	if err := embd.InitGPIO(); err != nil {
 		panic(err)
 	}
-	defer embd.CloseGPIO()
 
 	for i, pin := range pins {
 		fmt.Printf("Relay %d pin %d: ", i+1, pin)
@@ -63,7 +62,6 @@ func (tally *Tally) start(options Options) error {
 			panic(err)
 		}
 		fmt.Printf(" open")
-		defer relay.Close()
 
 		if err := relay.SetDirection(embd.Out); err != nil {
 			panic(err)
