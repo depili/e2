@@ -17,6 +17,28 @@ var options = struct {
 	KvmOptions       dcp.Options       `group:"Hetec DCP Serial client"`
 }{}
 
+var nixie_numbers = []uint16{
+	0x0200, // 0
+	0x0001, // 1
+	0x0002, // 2
+	0x0004, // 3
+	0x0008, // 4
+	0x0010, // 5
+	0x0020, // 6
+	0x0040, // 7
+	0x0080, // 8
+	0x0100} // 9
+
+const nixie_no_number = uint16(0x0000)
+const nixie_red = uint16(0x5000)
+const nixie_green = uint16(0x3000)
+const nixie_blue = uint16(0x6000)
+const nixie_yellow = uint16(0x1000)
+const nixie_cyan = uint16(0x2000)
+const nixie_magenta = uint16(0x4000)
+const nixie_white = uint16(0x0000)
+const nixie_led_off = uint16(0x7000)
+
 var parser = flags.NewParser(&options, flags.Default)
 
 func main() {
