@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/depili/e2/tally"
 	"github.com/jessevdk/go-flags"
 	"github.com/qmsk/e2/client"
@@ -18,6 +19,8 @@ var options = struct {
 	TallyOptions     tally.Options     `group:"Tally"`
 	KvmOptions       dcp.Options       `group:"Hetec DCP Serial client"`
 }{}
+
+const GPIO_LIVE_PIN = 25
 
 const OP_NOOP = byte(0)
 const OP_DIGIT0 = byte(1)
@@ -49,10 +52,12 @@ var led_numbers2 = [4][8]uint8{
 }
 
 var spiBus embd.SPIBus
+var gpio_live embd.DigitalPin
 
 var parser = flags.NewParser(&options, flags.Default)
 
 func main() {
+	log.Println("Initialize SPI bus")
 	if err := embd.InitSPI(); err != nil {
 		panic(err)
 	}
@@ -60,8 +65,27 @@ func main() {
 
 	spiBus = embd.NewSPIBus(embd.SPIMode0, 0, 50000, 8, 50)
 	defer spiBus.Close()
-
+	log.Println("Initialize the led matrix")
 	init_matrix()
+
+	log.Println("Initialize GPIO")
+	if err := embd.InitGPIO(); err != nil {
+		panic(err)
+	}
+	log.Printf("Pin %d as live indicator, active high: ", GPIO_LIVE_PIN)
+	gpio_live, err := embd.NewDigitalPin(GPIO_LIVE_PIN)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("open ")
+	if err := gpio_live.SetDirection(embd.Out); err != nil {
+		panic(err)
+	}
+	fmt.Printf(" output")
+	if err := gpio_live.Write(embd.High); err != nil {
+		panic(err)
+	}
+	fmt.Printf(" high\n")
 
 	if _, err := parser.Parse(); err != nil {
 		log.Fatalf("%v\n", err)
@@ -89,6 +113,13 @@ func main() {
 		}
 		if kvm < 4 && kvm >= 0 {
 			send_number(kvm, tallies[kvm])
+			if tallies[kvm] {
+				log.Println("KVM console is LIVE")
+				gpio_live.Write(embd.High)
+			} else {
+				log.Println("KVM console is safe")
+				gpio_live.Write(embd.Low)
+			}
 		}
 	}
 }
