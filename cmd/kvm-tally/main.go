@@ -5,7 +5,6 @@ import (
 	"github.com/qmsk/e2/client"
 	"github.com/qmsk/e2/discovery"
 	"github.com/qmsk/e2/tally"
-	"github.com/qmsk/e2/web"
 	"log"
 	"os"
 	"os/signal"
@@ -20,9 +19,8 @@ var Options = struct {
 	DiscoveryOptions discovery.Options `group:"E2 Discovery"`
 	ClientOptions    client.Options    `group:"E2 XML"`
 	TallyOptions     tally.Options     `group:"Tally"`
-	WebOptions		 web.Options       `group:"Web API"`
 
-	modules			map[string]module
+	modules map[string]module
 }{
 	modules: make(map[string]module),
 }
@@ -81,17 +79,6 @@ func main() {
 		tally.Stop()
 
 	}()
-
-	// Web
-	webAPI := tally.WebAPI()
-	webEvents := tally.WebEvents()
-
-	go Options.WebOptions.Server(
-		web.RoutePrefix("/api/", webAPI),
-		web.RoutePrefix("/events", webEvents),
-		Options.WebOptions.RouteStatic("/static/"),
-		Options.WebOptions.RouteFile("/", "tally.html"),
-	)
 
 	// run
 	if err := tally.Run(); err != nil {
