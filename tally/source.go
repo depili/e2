@@ -9,11 +9,11 @@ import (
 	"time"
 )
 
-var INPUT_CONTACT_REGEXP = regexp.MustCompile("tally=(\\d+)")
+var INPUT_CONTACT_REGEXP = regexp.MustCompile("kvm=(\\d+)")
 
 func newSource(tally *Tally, discoveryPacket discovery.Packet, clientOptions client.Options) (Source, error) {
 	source := Source{
-		created:		 time.Now(),
+		created:         time.Now(),
 		discoveryPacket: discoveryPacket,
 		clientOptions:   clientOptions,
 	}
@@ -36,11 +36,11 @@ func newSource(tally *Tally, discoveryPacket discovery.Packet, clientOptions cli
 //
 // A source can either be in a running state with err == nil, or in a failed state with err != nil
 type Source struct {
-	created			time.Time
-	updated			time.Time
+	created time.Time
+	updated time.Time
 
-	discoveryPacket	discovery.Packet
-	clientOptions	client.Options
+	discoveryPacket discovery.Packet
+	clientOptions   client.Options
 	xmlClient       *client.XMLClient
 
 	system client.System
