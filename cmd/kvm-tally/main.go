@@ -1,10 +1,10 @@
 package main
 
 import (
+	"github.com/depili/e2/tally"
 	"github.com/jessevdk/go-flags"
 	"github.com/qmsk/e2/client"
 	"github.com/qmsk/e2/discovery"
-	"github.com/qmsk/e2/tally"
 	"log"
 	"os"
 	"os/signal"

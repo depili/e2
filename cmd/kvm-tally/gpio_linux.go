@@ -1,17 +1,17 @@
 package main
 
 import (
-	"github.com/qmsk/e2/gpio"
-	"github.com/qmsk/e2/tally"
+	"github.com/depili/e2/gpio"
+	"github.com/depili/e2/tally"
 	"log"
 )
 
 type GPIOModule struct {
 	gpio.Options
 
-	gpio		*gpio.GPIO
+	gpio *gpio.GPIO
 
-	Enabled		bool	`long:"gpio" description:"Enable GPIO output"`
+	Enabled bool `long:"gpio" description:"Enable GPIO output"`
 }
 
 func init() {
