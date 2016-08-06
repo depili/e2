@@ -5,17 +5,20 @@ import (
 	"github.com/qmsk/e2/client"
 	"github.com/qmsk/e2/discovery"
 	"io"
-	"regexp"
 	"time"
 )
 
-var INPUT_CONTACT_REGEXP = regexp.MustCompile("kvm=(\\d+)")
-
 func newSource(tally *Tally, discoveryPacket discovery.Packet, clientOptions client.Options) (Source, error) {
 	source := Source{
+		options:         tally.options,
 		created:         time.Now(),
 		discoveryPacket: discoveryPacket,
 		clientOptions:   clientOptions,
+	}
+
+	// do not connect to slave VPs
+	if discoveryPacket.MasterMac != discoveryPacket.MacAddress {
+		return source, nil
 	}
 
 	// give updates every 10s when idle
@@ -36,6 +39,7 @@ func newSource(tally *Tally, discoveryPacket discovery.Packet, clientOptions cli
 //
 // A source can either be in a running state with err == nil, or in a failed state with err != nil
 type Source struct {
+	options Options
 	created time.Time
 	updated time.Time
 
@@ -77,28 +81,49 @@ func (source Source) updateState(state *State) error {
 		return source.err
 	}
 
+	if source.xmlClient == nil {
+		// not connected
+		return nil
+	}
+
 	system := source.system
 
-	for sourceID, source := range system.SrcMgr.SourceCol.List() {
+	for sourceID, systemSource := range system.SrcMgr.SourceCol.List() {
 		// lookup Input from inputCfg with tally=
-		if source.InputCfgIndex < 0 {
+		if systemSource.InputCfgIndex < 0 {
 			continue
 		}
-		inputCfg := system.SrcMgr.InputCfgCol[source.InputCfgIndex]
+		inputCfg := system.SrcMgr.InputCfgCol[systemSource.InputCfgIndex]
+		inputName := inputCfg.Name
 
+		// resolve ID
 		var tallyID ID
 
-		if match := INPUT_CONTACT_REGEXP.FindStringSubmatch(inputCfg.ConfigContact); match == nil {
+		if match := source.options.contactIDRegexp.FindStringSubmatch(inputCfg.ConfigContact); match == nil {
 			continue
 		} else if _, err := fmt.Sscanf(match[1], "%d", &tallyID); err != nil {
 			return fmt.Errorf("Invalid Input Contact=%v: %v\n", inputCfg.ConfigContact, err)
 		}
 
-		input := state.addInput(tallySource, inputCfg.Name, tallyID)
+		input := state.addInput(tallySource, inputName, tallyID, inputCfg.InputCfgVideoStatus.String())
+
+		// input state
+		if inputCfg.InputCfgVideoStatus == client.InputVideoStatusBad {
+			state.addTallyError(tallyID, input, fmt.Errorf("Source %v Input %v video status: %v", tallySource, inputName, inputCfg.InputCfgVideoStatus))
+		}
 
 		// lookup active Links
 		for _, screen := range system.DestMgr.ScreenDestCol {
+			// ignore?
+			if source.options.ignoreDestRegexp != nil && source.options.ignoreDestRegexp.MatchString(screen.Name) {
+				continue
+			}
+
 			var status Status
+
+			if screen.IsActive > 0 {
+				status.Active = true
+			}
 
 			for _, layer := range screen.LayerCollection {
 				if layer.LastSrcIdx == sourceID {
@@ -124,6 +149,11 @@ func (source Source) updateState(state *State) error {
 		}
 
 		for _, aux := range system.DestMgr.AuxDestCol {
+			// ignore?
+			if source.options.ignoreDestRegexp != nil && source.options.ignoreDestRegexp.MatchString(aux.Name) {
+				continue
+			}
+
 			output := state.addOutput(tallySource, aux.Name)
 
 			if aux.PvwLastSrcIndex == sourceID || aux.PgmLastSrcIndex == sourceID {
@@ -134,6 +164,7 @@ func (source Source) updateState(state *State) error {
 					Status: Status{
 						Preview: (aux.PvwLastSrcIndex == sourceID),
 						Program: (aux.PgmLastSrcIndex == sourceID),
+						Active:  (aux.IsActive > 0),
 					},
 				})
 			}

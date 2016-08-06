@@ -104,6 +104,9 @@ func testXMLClient(test testXML) *XMLClient {
 func testXMLClientRead(test testXML) System {
 	xmlClient := testXMLClient(test)
 
+	// fake "closed" mode, as we are expecting it
+	xmlClient.closed = true
+
 	var system System
 
 	for {
@@ -123,6 +126,9 @@ func TestXmlRead(t *testing.T) {
 		fileGlob:  "./test-xml/test1-*.xml",
 		fileDelay: 10 * time.Millisecond,
 	})
+
+	// fake "closed" mode, as we are expecting it
+	xmlClient.closed = true
 
 	listenChan, err := xmlClient.Listen()
 	if err != nil {
@@ -288,5 +294,32 @@ func TestXmlVersion31(t *testing.T) {
 
 	if system.PresetMgr.LastRecall != -1 {
 		t.Errorf("Preset LastRecall=%d", system.PresetMgr.LastRecall)
+	}
+}
+
+// Test initial system state for a stacked system
+func TestStacked(t *testing.T) {
+	system := testXMLClientRead(testXML{
+		fileGlob: "./test-xml/test-stack_*.xml",
+	})
+
+	if len(system.FrameCollection) != 2 {
+		t.Errorf("Incorrect number of frames: %d", len(system.FrameCollection))
+	}
+
+	if frame1, exists := system.FrameCollection["00:13:95:1c:0a:f2"]; !exists {
+		t.Errorf("Missing <Frame> 00:13:95:1c:0a:f2")
+	} else {
+		if frame1.Name != "E2" {
+			t.Errorf("Incorrect <Frame> 00:13:95:1c:0a:f2 <Name>: %v", frame1.Name)
+		}
+	}
+
+	if frame2, exists := system.FrameCollection["00:13:95:1d:17:57"]; !exists {
+		t.Errorf("Missing <Frame> 00:13:95:1d:17:57")
+	} else {
+		if frame2.Name != "S3" {
+			t.Errorf("Incorrect <Frame> 00:13:95:1d:17:57 <Name>: %v", frame2.Name)
+		}
 	}
 }
