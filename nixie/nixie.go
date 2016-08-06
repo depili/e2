@@ -2,6 +2,7 @@
 // http://www.dfrobot.com/index.php?route=product/product&product_id=738
 //
 // The nixie is controlled by sending 2 bytes via SPI
+// This module also communicates with a hetec KVM
 
 package nixie
 
@@ -48,19 +49,19 @@ type Options struct {
 	KvmOptions dcp.Options `group:"Hetec DCP Serial client"`
 }
 
-func (options Options) Make() (*GPIO, error) {
-	var gpio = GPIO{
+func (options Options) Make() (*Nixie, error) {
+	var nixie = Nixie{
 		options: options,
 	}
 
-	if err := gpio.init(options); err != nil {
+	if err := nixie.init(options); err != nil {
 		return nil, err
 	}
 
-	return &gpio, nil
+	return &nixie, nil
 }
 
-type GPIO struct {
+type Nixie struct {
 	options Options
 
 	// Livepin is HIGH if the kvm channel is live
@@ -75,7 +76,7 @@ type GPIO struct {
 	waitGroup sync.WaitGroup
 }
 
-func (gpio *GPIO) init(options Options) error {
+func (nixie *Nixie) init(options Options) error {
 	fmt.Printf("Init GPIO\n")
 
 	if err := embd.InitGPIO(); err != nil {
@@ -87,54 +88,54 @@ func (gpio *GPIO) init(options Options) error {
 	}
 
 	fmt.Printf("Intialize SPI\n")
-	gpio.spiBus = embd.NewSPIBus(embd.SPIMode0, 0, 50, 8, 100)
+	nixie.spiBus = embd.NewSPIBus(embd.SPIMode0, 0, 50, 8, 100)
 
-	gpio.send_nixie(nixie_no_number | nixie_white)
-	gpio.send_nixie(nixie_no_number | nixie_white)
-	gpio.send_nixie(nixie_no_number | nixie_white)
+	nixie.Send(nixie_no_number | nixie_white)
+	nixie.Send(nixie_no_number | nixie_white)
+	nixie.Send(nixie_no_number | nixie_white)
 
 	if options.LivePin == "" {
 
 	} else if pin, err := openPin("status:live", options.LivePin); err != nil {
 		return err
 	} else {
-		gpio.livePin = pin
+		nixie.livePin = pin
 	}
 
-	gpio.kvmConsole = 5
-	gpio.kvmChan = make(chan int)
+	nixie.kvmConsole = 0
+	nixie.kvmChan = make(chan int)
 
-	gpio.closeChan = make(chan bool)
+	nixie.closeChan = make(chan bool)
 
 	return nil
 }
 
-func (gpio *GPIO) RegisterTally(t *tally.Tally) {
-	gpio.tallyChan = make(chan tally.State)
-	gpio.waitGroup.Add(1)
+func (nixie *Nixie) RegisterTally(t *tally.Tally) {
+	nixie.tallyChan = make(chan tally.State)
+	nixie.waitGroup.Add(1)
 
-	go gpio.run()
+	go nixie.run()
 
-	t.Register(gpio.tallyChan)
+	t.Register(nixie.tallyChan)
 }
 
-func (gpio *GPIO) close() {
-	defer gpio.waitGroup.Done()
+func (nixie *Nixie) close() {
+	defer nixie.waitGroup.Done()
 
-	log.Printf("GPIO: Close pins and SPI bus..")
+	log.Printf("Nixie: Close pins and SPI bus..")
 
-	if gpio.livePin != nil {
-		gpio.livePin.Close(&gpio.waitGroup)
+	if nixie.livePin != nil {
+		nixie.livePin.Close(&nixie.waitGroup)
 	}
 
 	// Turn off the nixie tube and release the spi bus
-	gpio.send_nixie(nixie_no_number | nixie_led_off)
-	gpio.spiBus.Close()
+	nixie.Send(nixie_no_number | nixie_led_off)
+	nixie.spiBus.Close()
 	embd.CloseSPI()
 }
 
-func (gpio *GPIO) updateTally(state tally.State) {
-	log.Printf("GPIO: Update tally State:")
+func (nixie *Nixie) updateTally(state tally.State) {
+	log.Printf("Nixie: Update tally State:")
 	fmt.Printf("KVM tallies: ")
 	for id := tally.ID(1); id < 5; id++ {
 		var pinState = false
@@ -147,55 +148,56 @@ func (gpio *GPIO) updateTally(state tally.State) {
 			}
 		}
 		fmt.Printf("%d: %t ", id, pinState)
-		gpio.kvmTallies[id-1] = bool(pinState)
+		nixie.kvmTallies[id-1] = bool(pinState)
 	}
 	fmt.Printf("\n")
 }
 
-func (gpio *GPIO) run() {
-	defer gpio.close()
+func (nixie *Nixie) run() {
+	defer nixie.close()
 
-	go gpio.listenKvm()
+	go nixie.listenKvm()
 
 	// Initialize the nixie tube
 	log.Printf("Initialize nixie tube")
-	gpio.send_nixie(nixie_numbers[0] | nixie_yellow)
+	nixie.Send(nixie_numbers[0] | nixie_yellow)
 
 	log.Printf("Entering message loop")
 	for {
 		select {
-		case gpio.kvmConsole = <-gpio.kvmChan:
-			log.Printf("KVM console: %d", gpio.kvmConsole)
-		case state := <-gpio.tallyChan:
-			gpio.updateTally(state)
-		case _ = <-gpio.closeChan:
-			log.Printf("GPIO: Done")
+		case nixie.kvmConsole = <-nixie.kvmChan:
+			log.Printf("KVM console: %d", nixie.kvmConsole)
+		case state := <-nixie.tallyChan:
+			nixie.updateTally(state)
+		case _ = <-nixie.closeChan:
+			log.Printf("Nixie: Done")
 			return
 		}
 		fmt.Printf("kvm tallies: ")
-		for _, t := range gpio.kvmTallies {
+		for _, t := range nixie.kvmTallies {
 			fmt.Printf("%t ", t)
 		}
 		fmt.Printf("\n")
-		if gpio.kvmConsole < 4 && gpio.kvmConsole >= 0 {
+		if nixie.kvmConsole < 4 && nixie.kvmConsole >= 0 {
 			color := nixie_red
-			if gpio.kvmTallies[gpio.kvmConsole] {
+			if nixie.kvmTallies[nixie.kvmConsole] {
 				log.Println("KVM console is LIVE")
-				gpio.livePin.Set(true)
+				nixie.livePin.Set(true)
 			} else {
 				color = nixie_blue
 				log.Println("KVM console is safe")
-				gpio.livePin.Set(false)
+				nixie.livePin.Set(false)
 			}
-			gpio.send_nixie(nixie_numbers[gpio.kvmConsole+1] | color)
+			nixie.Send(nixie_numbers[nixie.kvmConsole+1] | color)
+		} else {
+			// Invalid state, just re-init the nixie
+			nixie.Send(nixie_numbers[0] | nixie_yellow)
 		}
-
 	}
-
 }
 
-func (gpio *GPIO) listenKvm() error {
-	if client, err := gpio.options.KvmOptions.Client(); err != nil {
+func (nixie *Nixie) listenKvm() error {
+	if client, err := nixie.options.KvmOptions.Client(); err != nil {
 		return err
 	} else {
 		for {
@@ -203,29 +205,29 @@ func (gpio *GPIO) listenKvm() error {
 				log.Fatalf("dcp:Client.Read: %v\n", err)
 			} else {
 				dcpDevice.Print(os.Stdout)
-				gpio.kvmChan <- dcpDevice.Mode.Console.Channel
+				nixie.kvmChan <- dcpDevice.Mode.Console.Channel
 			}
 		}
 	}
 }
 
-func (gpio *GPIO) send_nixie(data uint16) {
+func (nixie *Nixie) Send(data uint16) {
 	data_buf := []uint8{uint8(data >> 8), uint8(data)}
 	fmt.Printf("Sending: %08b%08b\n", data_buf[0], data_buf[1])
-	if err := gpio.spiBus.TransferAndReceiveData(data_buf); err != nil {
+	if err := nixie.spiBus.TransferAndReceiveData(data_buf); err != nil {
 		panic(err)
 	}
 }
 
 // Close and Wait..
-func (gpio *GPIO) Close() {
+func (nixie *Nixie) Close() {
 	log.Printf("GPIO: Close..")
 
-	gpio.closeChan <- true
+	nixie.closeChan <- true
 
-	if gpio.tallyChan != nil {
-		close(gpio.tallyChan)
+	if nixie.tallyChan != nil {
+		close(nixie.tallyChan)
 	}
 
-	gpio.waitGroup.Wait()
+	nixie.waitGroup.Wait()
 }
