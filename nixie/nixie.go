@@ -145,7 +145,7 @@ func (nixie *Nixie) close() {
 
 func (nixie *Nixie) updateTally(state tally.State) {
 	log.Printf("Nixie: Update tally State:")
-	fmt.Printf("KVM tallies: ")
+	fmt.Printf("\tKVM tallies: ")
 	for id := tally.ID(1); id < 5; id++ {
 		var pinState = false
 
@@ -182,11 +182,6 @@ func (nixie *Nixie) run() {
 			log.Printf("Nixie: Done")
 			return
 		}
-		fmt.Printf("kvm tallies: ")
-		for _, t := range nixie.kvmTallies {
-			fmt.Printf("%t ", t)
-		}
-		fmt.Printf("\n")
 		if nixie.kvmConsole < 4 && nixie.kvmConsole >= 0 {
 			fmt.Printf("\tKVM console: %d\n", nixie.kvmConsole)
 			color := nixie_red
