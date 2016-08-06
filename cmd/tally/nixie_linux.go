@@ -1,13 +1,13 @@
 package main
 
 import (
-	"github.com/qmsk/e2/nixie"
+	"github.com/depili/e2/nixie"
 	"github.com/qmsk/e2/tally"
 	"log"
 )
 
 type NixieModule struct {
-	Nixie.Options
+	nixie.Options
 
 	nixie *nixie.Nixie
 

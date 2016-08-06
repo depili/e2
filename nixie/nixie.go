@@ -64,8 +64,9 @@ func (options Options) Make() (*Nixie, error) {
 type Nixie struct {
 	options Options
 
-	// Livepin is HIGH if the kvm channel is live
-	livePin    *Pin
+	//Livepin is HIGH if the kvm channel is live
+	livePin embd.DigitalPin
+
 	spiBus     embd.SPIBus
 	kvmConsole int
 	kvmTallies [4]bool
@@ -94,15 +95,23 @@ func (nixie *Nixie) init(options Options) error {
 	nixie.Send(nixie_no_number | nixie_white)
 	nixie.Send(nixie_no_number | nixie_white)
 
+	if err := embd.InitGPIO(); err != nil {
+		return fmt.Errorf("embd.InitGPIO: %v", err)
+	}
+
 	if options.LivePin == "" {
 
-	} else if pin, err := openPin("status:live", options.LivePin); err != nil {
-		return err
+	} else if pin, err := embd.NewDigitalPin(options.LivePin); err != nil {
+		return fmt.Errorf("embd.NewDigitalPin %v: %v", options.LivePin, err)
+
+		// Writing as "out" defaults to initializing the value as low.
+	} else if err := pin.SetDirection(embd.Out); err != nil {
+		return fmt.Errorf("pin.SetDirection %v: %v", options.LivePin, err)
 	} else {
 		nixie.livePin = pin
 	}
 
-	nixie.kvmConsole = 0
+	nixie.kvmConsole = 5
 	nixie.kvmChan = make(chan int)
 
 	nixie.closeChan = make(chan bool)
@@ -125,7 +134,7 @@ func (nixie *Nixie) close() {
 	log.Printf("Nixie: Close pins and SPI bus..")
 
 	if nixie.livePin != nil {
-		nixie.livePin.Close(&nixie.waitGroup)
+		nixie.livePin.Close()
 	}
 
 	// Turn off the nixie tube and release the spi bus
@@ -179,17 +188,19 @@ func (nixie *Nixie) run() {
 		}
 		fmt.Printf("\n")
 		if nixie.kvmConsole < 4 && nixie.kvmConsole >= 0 {
+			fmt.Printf("\tKVM console: %d\n", nixie.kvmConsole)
 			color := nixie_red
 			if nixie.kvmTallies[nixie.kvmConsole] {
 				log.Println("KVM console is LIVE")
-				nixie.livePin.Set(true)
+				nixie.livePin.Write(1)
 			} else {
 				color = nixie_blue
 				log.Println("KVM console is safe")
-				nixie.livePin.Set(false)
+				nixie.livePin.Write(0)
 			}
 			nixie.Send(nixie_numbers[nixie.kvmConsole+1] | color)
 		} else {
+			fmt.Printf("\tKVM console: UNKNOWN\n")
 			// Invalid state, just re-init the nixie
 			nixie.Send(nixie_numbers[0] | nixie_yellow)
 		}
