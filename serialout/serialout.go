@@ -133,25 +133,6 @@ func (serialout *SerialOut) updateTally(tallyState tally.State) {
 		states[i] = state
 	}
 
-	/*
-		errors = len(tallyState.Errors)
-
-		// status LED
-		var statusLED LED
-
-		if found > 0 && errors > 0 {
-			statusLED = spiled.options.StatusWarn
-		} else if errors > 0 {
-			statusLED = spiled.options.StatusError
-		} else if found > 0 {
-			statusLED = spiled.options.StatusOK
-		} else {
-			statusLED = spiled.options.StatusIdle
-		}
-
-		statusLED.Intensity = spiled.options.Intensity
-
-	*/
 	if serialout.options.Debug {
 		log.Printf("SerialOut: found=%v", found)
 	}
