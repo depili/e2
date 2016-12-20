@@ -24,6 +24,7 @@ type Options struct {
 	SerialCount uint   `long:"serial-count" value-name:"COUNT" description:"Number of tallies"`
 	SerialName  string `long:"serial-out-name" value-name:"/dev/tty*" default:"/dev/ttyAMA0"`
 	SerialBaud  int    `long:"serial-out-baud" value-name:"BAUD" default:"115200"`
+	Debug       bool   `long:"serial-debug" description:"Enable debug output"`
 }
 
 func (options Options) Make() (*SerialOut, error) {
@@ -78,6 +79,9 @@ func (serialout *SerialOut) init(options Options) error {
 func (serialout *SerialOut) write() error {
 	for tally, state := range serialout.states {
 		msg := fmt.Sprintf("<%c%1d>", []byte(tallySymbols)[tally], state)
+		if serialout.options.Debug {
+			log.Printf("SerialOut: Sending: %v\n", msg)
+		}
 		if _, err := serialout.sp.Write([]byte(msg)); err != nil {
 			return err
 		}
@@ -96,18 +100,15 @@ func (serialout *SerialOut) close() {
 }
 
 func (serialout *SerialOut) updateTally(tallyState tally.State) {
-	log.Printf("SerialOut: Update tally State:")
+	if serialout.options.Debug {
+		log.Printf("SerialOut: Update tally State:")
+	}
 
 	states := make([]byte, serialout.count)
 
 	var found int
 
 	for i, state := range states {
-		if i == 0 {
-			// skip status
-			continue
-		}
-
 		id := tally.ID(i)
 
 		if tally, exists := tallyState.Tally[id]; !exists {
@@ -115,16 +116,18 @@ func (serialout *SerialOut) updateTally(tallyState tally.State) {
 		} else {
 			found++
 
-			if tally.Status.Program && tally.Status.Preview && tally.Status.Active {
+			if tally.Status.Program && tally.Status.Preview {
 				state = statePGMPVM
-			} else if tally.Status.Preview && tally.Status.Active {
+			} else if tally.Status.Preview {
 				state = statePVM
 			} else if tally.Status.Program {
 				state = statePGM
 			} else {
 				state = stateSafe
 			}
-			log.Printf("SerialOut %v: id=%v status=%v errors=%v state=%v", i, id, tally.Status, len(tally.Errors), state)
+			if serialout.options.Debug {
+				log.Printf("SerialOut %v: id=%v status=%v errors=%v state=%v", i, id, tally.Status, len(tally.Errors), state)
+			}
 		}
 
 		states[i] = state
@@ -149,9 +152,9 @@ func (serialout *SerialOut) updateTally(tallyState tally.State) {
 		statusLED.Intensity = spiled.options.Intensity
 
 	*/
-
-	log.Printf("SerialOut: found=%v", found)
-
+	if serialout.options.Debug {
+		log.Printf("SerialOut: found=%v", found)
+	}
 	// refresh
 	serialout.states = states
 	serialout.write()
