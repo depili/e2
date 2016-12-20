@@ -25,6 +25,10 @@ func (sourceType SourceType) String() string {
 	}
 }
 
+func (value SourceType) MarshalJSON() ([]byte, error) {
+	return marshalJSONString(value)
+}
+
 type Source struct {
 	ID int `json:"id" xml:"id,attr"`
 
@@ -44,27 +48,6 @@ type Source struct {
 
 	// -1 unless Type == SourceTypeDest
 	DestIndex int
-}
-
-type listSources struct {
-	Type int `json:"type"`
-}
-
-const listSourcesTypeInput = 0
-const listSourcesTypeBackground = 1
-
-// Default is to return all
-func (client *Client) ListSources() (sourceList []Source, err error) {
-	request := Request{
-		Method: "listSources",
-		Params: struct{}{},
-	}
-
-	if err := client.doResult(&request, &sourceList); err != nil {
-		return nil, err
-	} else {
-		return sourceList, nil
-	}
 }
 
 // XML

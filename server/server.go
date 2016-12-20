@@ -1,15 +1,17 @@
 package server
 
 import (
+	"fmt"
 	"github.com/qmsk/e2/client"
 	"github.com/qmsk/e2/discovery"
 	"github.com/qmsk/e2/web"
 	"log"
+	"sync/atomic"
 )
 
 type Options struct {
 	DiscoveryOptions discovery.Options `group:"E2 Discovery"`
-	ClientOptions    client.Options    `group:"E2 JSON-RPC"`
+	ClientOptions    client.Options    `group:"E2 Client"`
 }
 
 func (options Options) Server() (*Server, error) {
@@ -23,12 +25,12 @@ func (options Options) Server() (*Server, error) {
 		server.clientOptions = clientOptions
 	}
 
-	if client, err := server.clientOptions.Client(); err != nil {
+	if jsonClient, err := server.clientOptions.JSONClient(); err != nil {
 		log.Fatalf("Client %#v: %v\n", server.clientOptions, err)
 	} else {
-		log.Printf("Client %#v: %v\n", server.clientOptions, client)
+		log.Printf("Client %#v: %v\n", server.clientOptions, jsonClient)
 
-		server.client = client
+		server.jsonClient = jsonClient
 	}
 
 	if xmlClient, err := server.clientOptions.XMLClient(); err != nil {
@@ -39,6 +41,13 @@ func (options Options) Server() (*Server, error) {
 		server.xmlClient = xmlClient
 	}
 
+	if tcpClient, err := server.clientOptions.TCPClient(); err != nil {
+		log.Fatalf("Client %v: TCPClient %v", server.clientOptions, err)
+	} else {
+		log.Printf("Client %v: TCPClient: %v", server.clientOptions, tcpClient)
+
+		server.tcpClient = tcpClient
+	}
 
 	return server, nil
 }
@@ -46,53 +55,63 @@ func (options Options) Server() (*Server, error) {
 type Server struct {
 	options       Options
 	clientOptions client.Options
-	client        *client.Client
-	xmlClient	  *client.XMLClient
+	jsonClient    *client.JSONClient
+	xmlClient     *client.XMLClient
+	tcpClient     *client.TCPClient
+
+	state     atomic.Value
+	eventChan chan web.Event
 }
 
-func (server *Server) WebAPI() web.API {
-	return web.MakeAPI(server)
+type Status struct {
+	Server string `json:"server"`
+	Mode   string `json:"mode"`
 }
 
-func (server *Server) Index(name string) (web.Resource, error) {
-	switch name {
-	case "":
-		index := Index{}
+type State struct {
+	Status
+	System *client.System
+}
 
-		return &index, index.load(server.client)
-
-	case "status":
-		status := Status{
-			client: server.client,
-		}
-
-		return &status, nil
-
-	case "sources":
-		sources := Sources{}
-
-		return &sources, sources.load(server.client)
-
-	case "screens":
-		screens := Screens{
-			client: server.client,
-		}
-
-		return &screens, screens.load(server.client)
-
-	case "auxes":
-		auxes := Auxes{}
-
-		return &auxes, auxes.load(server.client)
-
-	case "presets":
-		presets := Presets{
-			client: server.client,
-		}
-
-		return &presets, presets.load(server.client)
-
-	default:
-		return nil, nil
+func (server *Server) GetStatus() Status {
+	var status = Status{
+		Server: server.clientOptions.String(),
 	}
+
+	if server.clientOptions.ReadOnly {
+		status.Mode = "read"
+	} else if server.clientOptions.Safe {
+		status.Mode = "safe"
+	} else {
+		status.Mode = "live"
+	}
+
+	return status
+}
+
+func (server *Server) Run() error {
+	if server.eventChan != nil {
+		defer close(server.eventChan)
+	}
+
+	for {
+		if system, err := server.xmlClient.Read(); err != nil {
+			return fmt.Errorf("xmlClient.Read: %v", err)
+		} else {
+			var state = State{
+				Status: server.GetStatus(),
+				System: &system,
+			}
+
+			server.state.Store(state)
+
+			if server.eventChan != nil {
+				server.eventChan <- state
+			}
+		}
+	}
+}
+
+func (server *Server) GetState() State {
+	return server.state.Load().(State)
 }

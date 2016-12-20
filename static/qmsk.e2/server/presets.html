@@ -1,49 +1,50 @@
-<div id="presets">
+<div id="presets" ng-class="{'display-small': displaySize == 'small', 'display-large': displaySize == 'large', 'autotake': autoTake }">
     <div id="tools">
-    <!--
-        <button name="cut" id="cut" type="submit" ng-click="cut()">
+        <div class="btn-group">
+            <label class="btn btn-default" ng-model="groupBy" uib-btn-radio="'all'" ng-click="clearGroup()">All</label>
+            <label class="btn btn-default" ng-model="groupBy" uib-btn-radio="'sno'" ng-click="clearGroup()">X.Y</label>
+            <label class="btn btn-default" ng-model="groupBy" uib-btn-radio="'console'" ng-click="clearGroup()">PG</label>
+        </div>
+
+        <div class="btn-group">
+            <label class="btn btn-default" ng-model="displaySize" uib-btn-radio="'small'">Small</label>
+            <label class="btn btn-default" ng-model="displaySize" uib-btn-radio="'normal'">Normal</label>
+            <label class="btn btn-default" ng-model="displaySize" uib-btn-radio="'large'">Large</label>
+        </div>
+
+        <div class="btn-group">
+            <button type="button" class="btn btn-default" ng-class="autoTake ? 'btn-danger' : 'btn-default'" ng-model="autoTake" uib-btn-checkbox>Auto Take</button>
+        </div>
+
+        <button class="tool" name="take" id="take" type="submit" ng-click="take()" ng-show="!autoTake">
+            Take
+        </button>
+        <button class="tool" name="cu" id="cut" ng-click="cut()">
             Cut
         </button>
-        <button name="autotrans" id="autotrans" ng-click="autotrans()">
+        <button class="tool" name="autotrans" id="autotrans" ng-click="autotrans()">
             Auto Trans
         </button>
-    -->
+
     </div>
 
     <div class="group" ng-repeat="group in groups | orderBy:'id'">
-        <div class="title" ng-click="collapseGroups[group.id] = !collapseGroups[group.id]">
-            <button type="button">
+        <div class="title" ng-click="toggleGroup(group.id)" ng-if="group.id">
+            <button type="button" ng-if="!showGroup">
                 <span class="glyphicon" ng-class="collapseGroups[group.id] ? 'glyphicon-plus' : 'glyphicon-minus'"></span>
             </button>
 
-            <h3>{{group.id}}</h3>
+            <a ng-click="selectGroup(group.id)">{{group.name}}</a>
         </div>
 
-        <div ng-show="!collapseGroups[group.id]">
-            <button type="button" class="preset" ng-repeat="preset in group.presets| orderBy:'index'">
-                {{preset.name}}
-
-                <div ng-repeat="aux_id in preset.auxes">
-                    <span class="dest">{{auxes[aux_id].name}}</span>
-                </div>
-                <div ng-repeat="screen_id in preset.screens">
-                    <span class="dest">{{screens[screen_id].name}}</span>
-                </div>
+        <div ng-show="showGroup ? showGroup == group.id : !collapseGroups[group.id]">
+            <button type="button" class="preset" ng-repeat="preset in group.presets | orderBy:'groupIndex' track by preset.groupIndex"
+                                                 id="preset-{{preset.id}}"
+                                                 ng-class="{'active': preset.id == activePresetID, 'preview': preset.id == previewPreset.id, 'program': preset.id == programPreset.id, 'other': preset.id != previewPreset.id && preset.id != programPreset.id  }"
+                                                 ng-click="autoTake ? take(preset) : select(preset)"
+             >
+                {{preset.Name}}
             </button>
         </div>
     </div>
-<!--
-            <button type="button" class="preset"
-                    ng-repeat="preset in group.presets"
-                    ng-class="{'preview': data.presets[preset].preview, 'program': data.presets[preset].program, 'active': data.presets[preset].active}"
-                    ng-click="clickPreset(preset)">
-                {{data.presets[preset].title}}
-                <div ng-repeat="(dest, where) in data.presets[preset].destinations">
-                    <span class="destination"
-                    ng-class="{'preview': where == 'preview', 'program': where == 'program', 'inactive': where == undefined}">
-                        {{dest}}
-                    </span>
-                </div>
-            </button>
--->
 </div>

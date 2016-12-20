@@ -4,34 +4,44 @@ import (
 	"fmt"
 	"github.com/qmsk/e2/client"
 	"github.com/qmsk/e2/web"
+	"net/http"
 )
 
+func (server *Server) Presets() (*Presets, error) {
+	var presets = Presets{
+		system:     server.GetState().System,
+		jsonClient: server.jsonClient,
+		tcpClient:  server.tcpClient,
+	}
+
+	if err := presets.init(); err != nil {
+		return nil, err
+	}
+
+	return &presets, nil
+}
+
 type Presets struct {
-	client *client.Client
+	system     *client.System
+	jsonClient *client.JSONClient
+	tcpClient  *client.TCPClient
 
 	presetMap map[string]Preset
 }
 
-func (presets *Presets) load(client *client.Client) error {
-	apiPresets, err := client.ListPresets()
-	if err != nil {
-		return err
-	}
-
+func (presets *Presets) init() error {
 	presetMap := make(map[string]Preset)
 
-	for _, apiPreset := range apiPresets {
+	for presetID, preset := range presets.system.PresetMgr.Preset {
 		// parse sno
 		preset := Preset{
-			ID:   apiPreset.ID,
-			Name: apiPreset.Name,
+			Preset: preset,
 
-			Locked: apiPreset.LockMode > 0,
+			Group: preset.Sno.Group,
+			Index: preset.Sno.Index,
 		}
 
-		preset.Group, preset.Index = apiPreset.ParseOrder()
-
-		presetMap[preset.String()] = preset
+		presetMap[fmt.Sprintf("%v", presetID)] = preset
 	}
 
 	presets.presetMap = presetMap
@@ -43,12 +53,61 @@ func (presets *Presets) Get() (interface{}, error) {
 	return presets.presetMap, nil
 }
 
+func (presets *Presets) Post(request *http.Request) (interface{}, error) {
+	var params struct {
+		ID        int  `json:"id"`
+		Live      bool `json:"live,omitempty"`
+		Cut       bool `json:"cut,omitempty"`
+		AutoTrans int  `json:"autotrans,omitempty"`
+	}
+	params.ID = -1
+	params.AutoTrans = -1
+
+	if err := web.DecodeRequest(request, &params); err != nil {
+		return nil, err
+	}
+
+	if params.ID >= 0 {
+		preset, exists := presets.presetMap[fmt.Sprintf("%d", params.ID)]
+		if !exists {
+			return nil, nil // 404
+		}
+
+		if params.Live {
+			if err := preset.take(presets.tcpClient); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := preset.activate(presets.tcpClient); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// preview -> program
+	if params.Cut {
+		if err := presets.tcpClient.Cut(); err != nil {
+			return nil, err
+		}
+	} else if params.AutoTrans == 0 {
+		if err := presets.tcpClient.AutoTrans(); err != nil {
+			return nil, err
+		}
+	} else if params.AutoTrans >= 0 {
+		if err := presets.tcpClient.AutoTransFrames(params.AutoTrans); err != nil {
+			return nil, err
+		}
+	}
+
+	return params, nil
+}
+
 func (presets *Presets) Index(name string) (web.Resource, error) {
 	if name == "" {
 		var presetStates PresetStates
 
 		for _, preset := range presets.presetMap {
-			if presetState, err := preset.loadState(presets.client); err != nil {
+			if presetState, err := preset.loadState(presets.jsonClient); err != nil {
 				return nil, err
 			} else {
 				presetStates = append(presetStates, presetState)
@@ -59,7 +118,7 @@ func (presets *Presets) Index(name string) (web.Resource, error) {
 
 	} else if preset, found := presets.presetMap[name]; !found {
 		return nil, nil
-	} else if presetState, err := preset.loadState(presets.client); err != nil {
+	} else if presetState, err := preset.loadState(presets.jsonClient); err != nil {
 		return presetState, err
 	} else {
 		return presetState, nil
@@ -73,14 +132,11 @@ func (presetStates PresetStates) Get() (interface{}, error) {
 }
 
 type Preset struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	client.Preset
 
 	// Decomposed Sequence order
 	Group int `json:"group"`
 	Index int `json:"index"`
-
-	Locked bool `json:"locked"`
 }
 
 func (preset Preset) String() string {
@@ -91,10 +147,26 @@ func (preset Preset) Get() (interface{}, error) {
 	return preset, nil
 }
 
-func (preset Preset) loadState(client *client.Client) (PresetState, error) {
+func (preset Preset) activate(clientAPI client.API) error {
+	if err := clientAPI.PresetRecall(preset.Preset); err != nil {
+		return fmt.Errorf("RecallPreset %d: %v", preset.ID, err)
+	}
+
+	return nil
+}
+
+func (preset Preset) take(clientAPI client.API) error {
+	if err := clientAPI.PresetAutoTrans(preset.Preset); err != nil {
+		return fmt.Errorf("RecallPreset %d: %v", preset.ID, err)
+	}
+
+	return nil
+}
+
+func (preset Preset) loadState(jsonClient *client.JSONClient) (PresetState, error) {
 	presetState := PresetState{Preset: preset}
 
-	return presetState, presetState.load(client)
+	return presetState, presetState.load(jsonClient)
 }
 
 type PresetState struct {
@@ -104,8 +176,8 @@ type PresetState struct {
 	Auxes   []string `json:"auxes"`
 }
 
-func (presetState *PresetState) load(client *client.Client) error {
-	if presetDestinations, err := client.ListDestinationsForPreset(presetState.ID); err != nil {
+func (presetState *PresetState) load(jsonClient *client.JSONClient) error {
+	if presetDestinations, err := jsonClient.ListDestinationsForPreset(presetState.ID); err != nil {
 		return err
 	} else {
 		for _, auxDest := range presetDestinations.AuxDest {

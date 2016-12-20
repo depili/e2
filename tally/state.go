@@ -2,8 +2,10 @@ package tally
 
 import (
 	"fmt"
-	"github.com/qmsk/e2/discovery"
 	"time"
+
+	"github.com/qmsk/e2/client"
+	"github.com/qmsk/e2/discovery"
 )
 
 // Tally ID
@@ -37,6 +39,14 @@ type Status struct {
 	Program bool
 	Preview bool
 	Active  bool
+
+	// Transitioning from Preview -> Program
+	Transition client.TransitionProgress `json:",omitempty"`
+}
+
+// Consider tally as being in the high state
+func (status Status) High() bool {
+	return status.Program || status.Transition.InProgress()
 }
 
 func (status Status) String() string {
@@ -64,6 +74,28 @@ type TallyState struct {
 	Errors  []error
 
 	Status Status
+	Color  Color
+}
+
+func (tallyState TallyState) color(options *Options) Color {
+
+	if tallyState.Status.Program {
+		if tallyState.Status.Transition.InProgress() {
+			return options.ColorTransition.Blend(options.ColorPreview, tallyState.Status.Transition.Factor())
+		} else {
+			return options.ColorProgram
+		}
+	} else if tallyState.Status.Preview {
+		if tallyState.Status.Transition.InProgress() {
+			return options.ColorTransition.Blend(options.ColorProgram, tallyState.Status.Transition.Factor())
+		} else if tallyState.Status.Active {
+			return options.ColorPreview
+		} else {
+			return options.ColorPreviewInactive
+		}
+	} else {
+		return options.ColorDefault
+	}
 }
 
 type State struct {
@@ -139,7 +171,7 @@ func (state *State) addLink(link Link) {
 }
 
 // Update finaly Tally state from links
-func (state *State) update() {
+func (state *State) update(options *Options) {
 	for _, sourceState := range state.Sources {
 		if sourceState.Error != nil {
 			state.Errors = append(state.Errors, sourceState.Error)
@@ -174,8 +206,18 @@ func (state *State) update() {
 		if link.Status.Active {
 			tallyState.Status.Active = true
 		}
+		if link.Status.Transition.InProgress() {
+			// TODO: merge multiple transitions?
+			tallyState.Status.Transition = link.Status.Transition
+		}
 
 		state.Tally[link.Tally] = tallyState
+	}
+
+	for id, tally := range state.Tally {
+		tally.Color = tally.color(options)
+
+		state.Tally[id] = tally
 	}
 }
 

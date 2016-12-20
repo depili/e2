@@ -5,3 +5,73 @@
 .tally-source h1 {
     text-align: center;
 }
+
+.tally a {
+    color: inherit;
+    display: block;
+}
+
+#tally.fullscreen {
+    position: fixed;
+    top: 0px;
+    bottom: 0px;
+    left: 0px;
+    right: 0px;
+    width: 100%;
+    height: 100%;
+    z-index: 1000;
+
+    margin: 0px;
+    padding: 0px;
+}
+
+#tally.fullscreen .tally {
+    width: 100%;
+    height: 100%;
+
+    margin: 0em 0em;
+
+    border-width: 5em;
+}
+
+#tally.fullscreen .tally.active {
+    border-style: solid;
+}
+
+#tally .tally {
+    font-size: 200%;
+}
+
+#tally .tally .id {
+    font-size: 500%;
+}
+
+/* Extra text */
+.tally p {
+    font-style: italic;
+
+    border: none;
+}
+
+.tally p.input {
+    color: #eee;
+}
+
+.tally p.output {
+    color: #444;
+}
+
+.tally p.program,
+.tally p.preview.program {
+    color: #f55;
+
+    border: none;
+}
+
+.tally p.preview {
+    color: #9f9;
+}
+
+.tally p.inactive {
+    color: #444;
+}
