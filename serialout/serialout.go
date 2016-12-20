@@ -116,9 +116,9 @@ func (serialout *SerialOut) updateTally(tallyState tally.State) {
 		} else {
 			found++
 
-			if tally.Status.Program && tally.Status.Preview {
+			if tally.Status.Program && tally.Status.Preview && tally.Status.Active {
 				state = statePGMPVM
-			} else if tally.Status.Preview {
+			} else if tally.Status.Preview && tally.Status.Active {
 				state = statePVM
 			} else if tally.Status.Program {
 				state = statePGM
