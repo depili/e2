@@ -77,14 +77,20 @@ func (serialout *SerialOut) init(options Options) error {
 }
 
 func (serialout *SerialOut) write() error {
+	if serialout.options.Debug {
+		log.Printf("SerialOut: Sending data: ")
+	}
 	for tally, state := range serialout.states {
 		msg := fmt.Sprintf("<%c%1d>", []byte(tallySymbols)[tally], state)
 		if serialout.options.Debug {
-			log.Printf("SerialOut: Sending: %v\n", msg)
+			fmt.Printf("%v\t", msg)
 		}
 		if _, err := serialout.sp.Write([]byte(msg)); err != nil {
 			return err
 		}
+	}
+	if serialout.options.Debug {
+		fmt.Printf("\n")
 	}
 	return nil
 }
