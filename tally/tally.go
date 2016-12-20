@@ -4,75 +4,71 @@ import (
 	"fmt"
 	"github.com/qmsk/e2/client"
 	"github.com/qmsk/e2/discovery"
-	"github.com/wujiang/embd"
-	_ "github.com/wujiang/embd/host/rpi" // This loads the RPi drive
 	"log"
+	"regexp"
+	"sync/atomic"
+	"time"
 )
-
-var pins = [8]int{21, 20, 16, 12, 26, 19, 13, 6}
 
 type Options struct {
 	clientOptions    client.Options
 	discoveryOptions discovery.Options
+
+	IgnoreDest       string `long:"tally-ignore-dest" value-name:"REGEXP" description:"Ignore matching destinations (case-insensitive regexp)"`
+	ignoreDestRegexp *regexp.Regexp
+	ContactName      string `long:"tally-contact-name" value-name:"NAME" default:"tally" description:"Resolve Input ID from Contact 'tally=\\d' field"`
+	contactIDRegexp  *regexp.Regexp
 }
 
 func (options Options) Tally(clientOptions client.Options, discoveryOptions discovery.Options) (*Tally, error) {
 	options.clientOptions = clientOptions
 	options.discoveryOptions = discoveryOptions
 
-	var tally Tally
+	if options.IgnoreDest == "" {
 
-	return &tally, tally.start(options)
+		// case-insensitive match
+	} else if regexp, err := regexp.Compile("(?i)" + options.IgnoreDest); err != nil {
+		return nil, fmt.Errorf("Invalid --tally-ignore-dest=%v: %v", options.IgnoreDest, err)
+	} else {
+		options.ignoreDestRegexp = regexp
+	}
+
+	if regexp, err := regexp.Compile("(?i)" + options.ContactName + "=" + "(\\d+)"); err != nil {
+		return nil, fmt.Errorf("Invalid --tally-contact-key=%v: %v", options.ContactName, err)
+	} else {
+		options.contactIDRegexp = regexp
+	}
+
+	var tally = Tally{
+		options:    options,
+		closeChan:  make(chan struct{}),
+		sources:    make(sources),
+		sourceChan: make(chan Source),
+		dests:      make(map[chan State]bool),
+	}
+
+	return &tally, tally.init(options)
 }
+
+type sources map[string]Source
 
 // Concurrent tally support for multiple sources and destinations
 type Tally struct {
 	options Options
 
+	closeChan chan struct{}
+
 	discovery     *discovery.Discovery
 	discoveryChan chan discovery.Packet
 
-	/* run() state */
-	// active systems
-	sources map[string]Source
-
-	// updates to sources
+	sources    sources
 	sourceChan chan Source
 
-	// Relays
-	relays [8]embd.DigitalPin
+	state atomic.Value
+	dests map[chan State]bool
 }
 
-func (tally *Tally) start(options Options) error {
-	tally.options = options
-	tally.sources = make(map[string]Source)
-	tally.sourceChan = make(chan Source)
-
-	// Initialize GPIO
-	log.Printf("Initializing GPIO\n")
-
-	if err := embd.InitGPIO(); err != nil {
-		panic(err)
-	}
-
-	for i, pin := range pins {
-		fmt.Printf("Relay %d pin %d: ", i+1, pin)
-		relay, err := embd.NewDigitalPin(pins[i])
-		if err != nil {
-			panic(err)
-		}
-		fmt.Printf(" open")
-
-		if err := relay.SetDirection(embd.Out); err != nil {
-			panic(err)
-		}
-		fmt.Printf(" output")
-		if err := relay.Write(embd.Low); err != nil {
-			panic(err)
-		}
-		fmt.Printf(" low\n")
-		tally.relays[i] = relay
-	}
+func (tally *Tally) init(options Options) error {
 
 	if discovery, err := options.discoveryOptions.Discovery(); err != nil {
 		return fmt.Errorf("discovery:DiscoveryOptions.Discovery: %v", err)
@@ -84,83 +80,120 @@ func (tally *Tally) start(options Options) error {
 	return nil
 }
 
+// Register watcher for state
+// TODO: optimize to send a pointer to a shared read-only State?
+func (tally *Tally) Register(stateChan chan State) {
+	tally.dests[stateChan] = true
+}
+
 // mainloop, owns Tally state
 func (tally *Tally) Run() error {
+	// use a nil state to catch anyone trying to change it... :)
+	var state *State = &State{}
+
 	for {
+		// update
+		tally.apply(state)
+
 		select {
-		case discoveryPacket := <-tally.discoveryChan:
-			if clientOptions, err := tally.options.clientOptions.DiscoverOptions(discoveryPacket); err != nil {
+		case <-tally.closeChan:
+			log.Printf("Tally: stopping...")
+
+			for _, source := range tally.sources {
+				source.close()
+			}
+
+			// mark as closed, wait for Sources to finish
+			tally.closeChan = nil
+
+		case discoveryPacket, valid := <-tally.discoveryChan:
+			if !valid {
+				return fmt.Errorf("discovery: %v", tally.discovery.Error())
+			} else if clientOptions, err := tally.options.clientOptions.DiscoverOptions(discoveryPacket); err != nil {
 				log.Printf("Tally: invalid discovery client options: %v\n", err)
-			} else if _, exists := tally.sources[clientOptions.String()]; exists {
-				// already known
-			} else if source, err := newSource(tally, clientOptions); err != nil {
+			} else if source, exists := tally.sources[clientOptions.String()]; exists && source.err == nil {
+				// already running
+			} else if source, err := newSource(tally, discoveryPacket, clientOptions); err != nil {
 				log.Printf("Tally: unable to connect to discovered system: %v\n", err)
 			} else {
-				log.Printf("Tally: connected to new source: %v\n", source)
+				log.Printf("Tally: connected to source: %v\n", source)
 
 				tally.sources[clientOptions.String()] = source
 			}
 
 		case source := <-tally.sourceChan:
 			if err := source.err; err != nil {
-				log.Printf("Tally: Source %v Error: %v\n", source, err)
+				log.Printf("Tally: Source %v Error: %v", source, err)
 
-				delete(tally.sources, source.String())
+				tally.sources[source.String()] = source
+
 			} else {
-				log.Printf("Tally: Source %v: Update\n", source)
+				log.Printf("Tally: Source %v: Update", source)
+
+				source.updated = time.Now()
 
 				tally.sources[source.String()] = source
 			}
 
-			if err := tally.update(); err != nil {
-				return fmt.Errorf("Tally.update: %v\n", err)
+			state = tally.update()
+		}
+
+		// stopping?
+		if tally.closeChan == nil {
+			var closed = true
+
+			for _, source := range tally.sources {
+				if !source.isClosed() {
+					closed = false
+				}
+			}
+
+			if closed {
+				log.Printf("Tally: stopped")
+				return nil
 			}
 		}
 	}
 }
 
-// Compute new output state from sources
-func (tally *Tally) update() error {
-	var state = State{
-		Inputs: make(map[Input]ID),
-		Tally:  make(map[ID]Status),
+// Return a copy of the current State.
+// TODO: optimize to return a pointer to a shared read-only State?
+func (tally *Tally) Get() State {
+	return *tally.state.Load().(*State)
+}
+
+// store and distribute the new State. This is a shared read-only pointer.
+func (tally *Tally) apply(state *State) {
+	log.Printf("tally: Update: sources=%d inputs=%d outputs=%d tallys=%d",
+		len(tally.sources), len(state.Inputs), len(state.Outputs), len(state.Tally),
+	)
+
+	// the state
+	tally.state.Store(state)
+
+	for stateChan, _ := range tally.dests {
+		stateChan <- *state
 	}
+}
+
+// Compute new output state from sources
+func (tally *Tally) update() *State {
+	var state = newState()
 
 	for _, source := range tally.sources {
-		if err := state.updateSystem(source.system, source.String()); err != nil {
-			return err
-		}
-	}
-
-	if err := state.update(); err != nil {
-		return err
-	}
-
-	log.Printf("Tally.update: state:\n")
-	state.Print()
-	log.Printf("Set relays\n")
-	relay_states := [8]bool{false, false, false, false, false, false, false, false}
-	for i, status := range state.Tally {
-		if i < 9 && i > 0 {
-			relay_states[i-1] = status.Program
-		}
-	}
-
-	for i, enable := range relay_states {
-		fmt.Printf("\t%d: ", i+1)
-		if enable {
-			if err := tally.relays[i].Write(embd.High); err != nil {
-				panic(err)
-			}
-			fmt.Printf("\033[7m\033[1mON\033[21m\033[27m ")
+		if err := source.updateState(state); err != nil {
+			state.setSourceError(source, err)
 		} else {
-			if err := tally.relays[i].Write(embd.Low); err != nil {
-				panic(err)
-			}
-			fmt.Printf("off ")
+			state.setSource(source)
 		}
 	}
-	fmt.Printf("\n")
 
-	return nil
+	state.update()
+
+	return state
+}
+
+// Termiante any Run()
+func (tally *Tally) Stop() {
+	close(tally.closeChan)
 }
