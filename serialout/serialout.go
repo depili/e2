@@ -64,6 +64,9 @@ func (serialout *SerialOut) init(options Options) error {
 		serialout.sp = serialPort
 	}
 
+	log.Printf("SerialOut: Sleeping due to the arduino bootloader...")
+	time.Sleep(5 * time.Second)
+
 	// Number of connected tallies
 	serialout.count = options.SerialCount
 	serialout.states = make([]byte, serialout.count)
