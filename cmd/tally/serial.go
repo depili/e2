@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/depili/e2/serialout"
+	"github.com/qmsk/e2/serialout"
 	"github.com/qmsk/e2/tally"
 	"log"
 )
